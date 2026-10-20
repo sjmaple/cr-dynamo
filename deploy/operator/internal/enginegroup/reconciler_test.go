@@ -354,12 +354,25 @@ func TestCoordinatorRestartAfterAmbiguousApplyDoesNotCompete(t *testing.T) {
 	t.Log("Rebuild the coordinator and recover the running operation by its durable identity")
 	scenario.rebuildCoordinator()
 	scenario.mustReconcile("observe the accepted membership operation after restart")
-	if scenario.membership.applyCalls != 1 {
-		t.Fatalf("restart started a competing membership application: %d calls", scenario.membership.applyCalls)
+	if scenario.membership.applyCalls != 2 || len(scenario.membership.targets) != 1 {
+		t.Fatalf("restart did not reassert exactly the same target: calls=%d targets=%d", scenario.membership.applyCalls, len(scenario.membership.targets))
 	}
 	if scenario.status.Membership.Observed.Transition == nil ||
 		scenario.status.Membership.Observed.Transition.Phase != MembershipTransitionPhasePending {
 		t.Fatalf("pending transition was not recovered: %#v", scenario.status.Membership)
+	}
+
+	t.Log("Continue reasserting the exact level while a participant has not finished joining the original collective")
+	frozen := cloneMembershipTarget(scenario.status.Membership.Desired)
+	for range 3 {
+		scenario.mustReconcile("repair incomplete delivery of the existing Pending target")
+	}
+	if len(scenario.membership.targets) != 1 || !sameMembershipTarget(*frozen, *scenario.status.Membership.Desired) {
+		t.Fatal("pending reconciliation changed the durable membership target or started a competing operation")
+	}
+	applyCallsBeforeCommit := scenario.membership.applyCalls
+	if applyCallsBeforeCommit != 5 {
+		t.Fatalf("pending delivery was not reasserted each pass: %d calls", applyCallsBeforeCommit)
 	}
 
 	t.Log("Commit the original operation and finish without changing its request identity")
@@ -374,8 +387,8 @@ func TestCoordinatorRestartAfterAmbiguousApplyDoesNotCompete(t *testing.T) {
 	scenario.runUntil("finish recovered growth", func(s *coordinatorScenario) bool {
 		return s.status.Transition.Outcome == TransitionOutcomeCompleted
 	})
-	if scenario.membership.applyCalls != 1 {
-		t.Fatalf("committed request was applied more than once: %d", scenario.membership.applyCalls)
+	if scenario.membership.applyCalls != applyCallsBeforeCommit || len(scenario.membership.targets) != 1 {
+		t.Fatalf("commit started another native transition: calls=%d targets=%d", scenario.membership.applyCalls, len(scenario.membership.targets))
 	}
 }
 

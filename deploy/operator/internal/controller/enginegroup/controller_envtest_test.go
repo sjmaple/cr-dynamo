@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -310,6 +311,7 @@ type engineGroupControllerTestBackend struct {
 	observationErrors          map[domain.ObservationAuthority]error
 	verificationFailure        *domain.Failure
 	membershipApplyInvocations int
+	membershipTransitions      int
 }
 
 func newEngineGroupControllerTestBackend(replicas int) *engineGroupControllerTestBackend {
@@ -553,11 +555,16 @@ func (a engineGroupControllerTestMembershipAdapter) Apply(
 ) error {
 	a.backend.mu.Lock()
 	defer a.backend.mu.Unlock()
-	if a.backend.transition != nil && a.backend.transition.TransitionID == target.TransitionID &&
-		a.backend.transition.Phase == domain.MembershipTransitionPhaseCommitted {
+	a.backend.membershipApplyInvocations++
+
+	// Reassertion resumes delivery; it cannot manufacture a new collective or advance the native commit.
+	if a.backend.pendingTarget != nil && a.backend.pendingTarget.TransitionID == target.TransitionID {
+		if !reflect.DeepEqual(*a.backend.pendingTarget, target) {
+			return errors.New("membership target changed during idempotent replay")
+		}
 		return nil
 	}
-	a.backend.membershipApplyInvocations++
+	a.backend.membershipTransitions++
 	targetCopy := target
 	a.backend.pendingTarget = &targetCopy
 	a.backend.transition = &domain.MembershipTransitionObservation{
@@ -595,6 +602,12 @@ func (b *engineGroupControllerTestBackend) membershipApplyCount() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.membershipApplyInvocations
+}
+
+func (b *engineGroupControllerTestBackend) membershipTransitionCount() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.membershipTransitions
 }
 
 func (b *engineGroupControllerTestBackend) commitPendingMembership() {

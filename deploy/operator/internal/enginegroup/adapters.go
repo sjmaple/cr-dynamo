@@ -238,7 +238,8 @@ type MembershipAdapter interface {
 	) (MembershipObservation, error)
 	// Apply atomically compares BaseTopology and applies target. It is idempotent by transition identity and exact
 	// payload, permits only one non-terminal mutation, and never supersedes Pending or Unknown work. Any returned error
-	// leaves acceptance ambiguous; definitive rejection is reported durably by Observe.
+	// leaves acceptance ambiguous; definitive rejection is reported durably by Observe. Reasserting a Pending target
+	// must converge incomplete delivery, such as a missing rank in an API fan-out, without starting another collective.
 	Apply(ctx context.Context, groupID GroupID, target MembershipTarget) error
 }
 

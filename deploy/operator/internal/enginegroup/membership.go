@@ -210,6 +210,12 @@ func (c *Coordinator) reconcileDesiredMembership(
 				"engine topology changed before the transition reported commit",
 			)
 		}
+
+		// Reassert the same durable target so a partial fan-out cannot strand ranks that missed submission.
+		// Adapter-owned idempotency must resume the existing collective rather than start a competitor.
+		if err := c.membership.Apply(ctx, groupID, target); err != nil {
+			return false, false, fmt.Errorf("reassert pending membership target: %w", err)
+		}
 		return false, false, nil
 	case MembershipTransitionPhaseCommitted:
 		return c.recordCommittedMembership(status, base, observedTopology, resolution, *observation)

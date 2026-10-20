@@ -248,7 +248,8 @@ func TestEngineGroupDeletionWaitsForAcceptedGrowth(t *testing.T) {
 	}
 	require.NoError(t, env.Client().Get(t.Context(), request.NamespacedName, group))
 	assert.Equal(t, operationID, group.Status.Operation.ID)
-	assert.Equal(t, 1, backend.membershipApplyCount())
+	assert.Greater(t, backend.membershipApplyCount(), 1, "repair delivery of the existing target after restart")
+	assert.Equal(t, 1, backend.membershipTransitionCount(), "reassertion must not start a competing collective")
 	assert.Len(t, backend.capacity.Allocations, 2)
 
 	t.Log("observe growth completion, then retire the resulting exact world with a new operation")
@@ -265,7 +266,7 @@ func TestEngineGroupDeletionWaitsForAcceptedGrowth(t *testing.T) {
 		require.NoError(t, err)
 	}
 	require.True(t, deleted)
-	assert.Equal(t, 2, backend.membershipApplyCount())
+	assert.Equal(t, 2, backend.membershipTransitionCount(), "growth and terminal retirement are the only native operations")
 	assert.Len(t, backend.capacity.ReleaseFences, 2)
 	assert.Empty(t, backend.capacity.Allocations)
 	assert.Empty(t, backend.topology.Replicas)
